@@ -6,6 +6,7 @@ mutable struct MoleculeTopology
     bondIndList::Union{Matrix{Int64},Matrix{Float64}}
     angleIndList::Matrix{Any}
     dihedralIndList::Matrix{Any}
+    improperIndList
     nonBondedIndList::Matrix{Any}
 
 end
@@ -97,7 +98,12 @@ function buildTopology(molecule,elementTypeDict,atomRadiiDict)
         n_bond2_1 = bond2_1/norm(bond2_1) #normalized vector in the 2->1 direction
 
 
-        for m in id2+1:nAtoms #I think this also needs to run from 1 to nAtoms, but check that m neq id1 or id2
+        for m in 1:nAtoms #I think this also needs to run from 1 to nAtoms, but check that m neq id1 or id2
+            
+            if (m == id1) || (m == id2)
+                continue
+            end
+
             atom3 = molecule.Coords[m,:]
             element3 = keys(filter(p -> p.second[2] == molecule.Masses[m], elementTypeDict))
             atomRadius3 = atomRadiiDict[first(element3)]
@@ -212,13 +218,38 @@ function buildTopology(molecule,elementTypeDict,atomRadiiDict)
     end
 
     dihedralIndList = dihedralIndList[1:currentDihedralMarker-1,:]
+    
+    improperIndList = []
+    #This code is a simplified version of the code in findNeighbors
+    #I cannot call findNeighbors, because one of its arguments is topology (but only bondIndList is needed)
+    for k in 1:nAtoms
+        indices = findall(x -> x == k, bondIndList)
+        col_neighbors = []
+        row_neighbors = []
+        for k in 1:length(indices)
+            indices[k][2] == 1 ? push!(row_neighbors, 2) : push!(row_neighbors, 1)
+            push!(col_neighbors,indices[k][1])
+        end
+        neighbor_indices = []
 
+        for k in 1:length(col_neighbors)
+            idx_neighbor = Int64(bondIndList[col_neighbors[k],row_neighbors[k]])
+            push!(neighbor_indices,idx_neighbor)
+        end
+
+        if length(neighbor_indices) == 3 #a central atom k, bound to 3 atoms
+            push!(improperIndList,[neighbor_indices[1] k neighbor_indices[2] neighbor_indices[3]])
+        end
+
+    end
+    
     topology = MoleculeTopology(
         nAtoms,
         atomIndList,
         bondIndList,
         angleIndList,
         dihedralIndList,
+        improperIndList,
         zeros(1,4),
     )
     

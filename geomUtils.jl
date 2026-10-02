@@ -152,7 +152,7 @@ function makeBonds(atoms,topology,atomTypeArray,BondTypes)
             #println(selBondTypes[1]["k"])
             push!(Interaction,HarmonicBond(k=(selBondTypes[1]["k"])u"kJ * mol^-1 * nm^-2", r0=(selBondTypes[1]["length"])u"nm"))
         else
-            error("Bond parameters for atoms $gafftype1 and $gafftype2 were not found in BondTypes.")
+            error("Bond parameters for atoms $id1 ($gafftype1) and $id2 ($gafftype2) were not found in BondTypes.")
         end
     end
 
@@ -203,7 +203,7 @@ function makeAngles(atoms,topology,atomTypeArray,AngleTypes)
             #println(selBondTypes[1]["k"])
             push!(Interaction,HarmonicAngle(k=(selAngleTypes[1]["k"])u"kJ/mol", θ0=(selAngleTypes[1]["angle"])u"rad"))
         else
-            error("Angle parameters for atoms $gafftype1, $gafftype2 and $gafftype3 were not found in AngleTypes.")
+            error("Angle parameters for atoms $id1 ($gafftype1), $id2 ($gafftype2) and $id3 ($gafftype3) were not found in AngleTypes.")
         end
     end
 
@@ -366,22 +366,11 @@ function determineAtomTypes(atoms,topology)
                 )
             
             number_neighbors, indices, neighbor_elements, neighbor_indices = findNeighbors(j,atoms,topology,elementTypeDict)
-            # number_H_neighbors = number_neighbors["H"]
-            # number_C_neighbors = number_neighbors["C"] 
-            # number_O_neighbors = number_neighbors["O"] 
-            # println(number_neighbors["H"])
-            # println(number_neighbors["C"])
-            # println(number_neighbors["O"])
-
 
             if length(indices) == 3
                 angleRowInd,angleValues = getAngles(j,neighbor_indices,topology)
-                # println("Output from getAngles for:")
-                # println(j)
-                # println(neighbor_indices)
-                # println(angleRowInd)
-                # println(angleValues)
-                if sum(angleValues) > 350.0 #for a planar site they should add to exactly 360 degrees
+
+                if sum(angleValues) > 335.0 #for a planar site they should add to exactly 360 degrees
                     atomTypeDict["hybridization"] = "sp2"
                 else
                     atomTypeDict["hybridization"] = "sp3*" #the star is a placeholder, it could mean an empty site from a missing atom
@@ -395,18 +384,24 @@ function determineAtomTypes(atoms,topology)
                     atomTypeDict["gafftype"] = "c" #gaff carbonyl carbon
                 elseif number_neighbors["C"] == 2
                     atomTypeDict["class"] = "-CX="
-                    atomTypeDict["gafftype"] = "ca" #gaff aromatic carbon (just a guess so far)
+                    atomTypeDict["gafftype"] = "c2" #gaff sp2 carbon
                 elseif number_neighbors["C"] == 3
                     atomTypeDict["class"] = "-C(bridge)="
-                    atomTypeDict["gafftype"] = "cp" #gaff aromatic carbon, bridging phenyl units (just a guess so far)
+                    atomTypeDict["gafftype"] = "c2" #gaff sp2 carbon
                 end
             elseif length(indices) == 4
                 atomTypeDict["hybridization"] = "sp3"
                 if number_neighbors["H"] == 3
                     atomTypeDict["class"] = "CH3-"
                     atomTypeDict["gafftype"] = "c3"
+                elseif number_neighbors["H"] == 2 && number_neighbors["C"] == 2
+                    atomTypeDict["class"] = "-CH2-"
+                    atomTypeDict["gafftype"] = "c3"
                 elseif number_neighbors["O"] == 1
                     atomTypeDict["class"] = "CX2O-"
+                    atomTypeDict["gafftype"] = "c3"
+                else
+                    atomTypeDict["class"] = "-(-)C(-)-"
                     atomTypeDict["gafftype"] = "c3"
                 end
             end
@@ -420,6 +415,39 @@ function determineAtomTypes(atoms,topology)
                 "gafftype" => "",
                 )
 
+            number_neighbors, indices, neighbor_elements, neighbor_indices = findNeighbors(j,atoms,topology,elementTypeDict)
+            
+            if length(indices) == 1
+                atomTypeDict["hybridization"] = "sp"
+                if number_neighbors["C"] == 1
+                    atomTypeDict["class"] = "N≡C"
+                    atomTypeDict["gafftype"] = "n1" #gaff sp1 nitrogen
+                end
+            elseif length(indices) == 2
+                atomTypeDict["hybridization"] = "sp2"
+                if number_neighbors["C"] == 1 && number_neighbors["H"] == 1
+                    atomTypeDict["class"] = "C=N-H"
+                    atomTypeDict["gafftype"] = "n2" #gaff sp2 nitrogen with 2 substituents
+                elseif number_neighbors["C"] == 2
+                    atomTypeDict["class"] = "C=N-C"
+                    atomTypeDict["gafftype"] = "n2" #gaff sp2 nitrogen with 2 substituents    
+                end
+            elseif length(indices) == 3
+                angleRowInd,angleValues = getAngles(j,neighbor_indices,topology)
+                    if sum(angleValues) > 335.0 #for a planar site they should add to exactly 360 degrees
+                        atomTypeDict["hybridization"] = "sp2"
+                    else
+                        atomTypeDict["hybridization"] = "sp3*" #the star is a placeholder, it could mean an empty site from a missing atom
+                    end
+                #atomTypeDict["hybridization"] = "sp2"
+                if number_neighbors["C"] == 1 && number_neighbors["H"] == 2
+                    atomTypeDict["class"] = "C-N-H2"
+                    atomTypeDict["gafftype"] = "n3" #gaff sp3 nitrogen with 3 substituents
+                elseif number_neighbors["C"] == 2 && number_neighbors["H"] == 1
+                    atomTypeDict["class"] = "C-N-C,H"
+                    atomTypeDict["gafftype"] = "n3" #gaff sp3 nitrogen with 3 substituents    
+                end    
+            end
 
             push!(atomTypeArray,atomTypeDict)    
         elseif first(element) == "O" #to do
@@ -514,25 +542,28 @@ function getAngles(current_index,neighbor_indices,topology)
 
         #1 and #2
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[1] current_index neighbor_indices[2]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
+        println(currentAngleRowInd)
+        if isempty(currentAngleRowInd)
             currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[2] current_index neighbor_indices[1]]), 1:size(topology.angleIndList, 1))
         end        
         if !isempty(currentAngleRowInd)
             push!(angleRowInd,first(currentAngleRowInd))
             push!(angleValues,first(topology.angleIndList[currentAngleRowInd,4]))
         end
+        currentAngleRowInd = [] #I reset the value, otherwise the isempty statement will not work
         #1 and #3
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[1] current_index neighbor_indices[3]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
+        if isempty(currentAngleRowInd)
             currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[3] current_index neighbor_indices[1]]), 1:size(topology.angleIndList, 1))
         end
         if !isempty(currentAngleRowInd)
             push!(angleRowInd,first(currentAngleRowInd))
             push!(angleValues,first(topology.angleIndList[currentAngleRowInd,4]))
         end
+        currentAngleRowInd = [] #I reset the value, otherwise the isempty statement will not work
         #2 and #3
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[2] current_index neighbor_indices[3]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
+        if isempty(currentAngleRowInd)
             currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[3] current_index neighbor_indices[2]]), 1:size(topology.angleIndList, 1))
         end
         if !isempty(currentAngleRowInd)
@@ -546,52 +577,57 @@ function getAngles(current_index,neighbor_indices,topology)
 
         #1 and #2
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[1] current_index neighbor_indices[2]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
+        if isempty(currentAngleRowInd)
             currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[2] current_index neighbor_indices[1]]), 1:size(topology.angleIndList, 1))
         end
         if !isempty(currentAngleRowInd)
             push!(angleRowInd,first(currentAngleRowInd))
             push!(angleValues,first(topology.angleIndList[currentAngleRowInd,4]))
         end
+        currentAngleRowInd = [] #I reset the value, otherwise the isempty statement will not work
         #1 and #3
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[1] current_index neighbor_indices[3]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
+        if isempty(currentAngleRowInd)
             currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[3] current_index neighbor_indices[1]]), 1:size(topology.angleIndList, 1))
         end
         if !isempty(currentAngleRowInd)
             push!(angleRowInd,first(currentAngleRowInd))
             push!(angleValues,first(topology.angleIndList[currentAngleRowInd,4]))
         end
+        currentAngleRowInd = [] #I reset the value, otherwise the isempty statement will not work
         #1 and #4
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[1] current_index neighbor_indices[4]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
+        if isempty(currentAngleRowInd)
             currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[4] current_index neighbor_indices[1]]), 1:size(topology.angleIndList, 1))
         end
         if !isempty(currentAngleRowInd)
             push!(angleRowInd,first(currentAngleRowInd))
             push!(angleValues,first(topology.angleIndList[currentAngleRowInd,4]))
         end
+        currentAngleRowInd = [] #I reset the value, otherwise the isempty statement will not work
         #2 and #3
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[2] current_index neighbor_indices[3]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
-            currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[2] current_index neighbor_indices[2]]), 1:size(topology.angleIndList, 1))
+        if isempty(currentAngleRowInd)
+            currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[3] current_index neighbor_indices[2]]), 1:size(topology.angleIndList, 1))
         end
         if !isempty(currentAngleRowInd)
             push!(angleRowInd,first(currentAngleRowInd))
             push!(angleValues,first(topology.angleIndList[currentAngleRowInd,4]))
-        end  
+        end
+        currentAngleRowInd = [] #I reset the value, otherwise the isempty statement will not work  
         #2 and #4
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[2] current_index neighbor_indices[4]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
+        if isempty(currentAngleRowInd)
             currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[4] current_index neighbor_indices[2]]), 1:size(topology.angleIndList, 1))
         end
         if !isempty(currentAngleRowInd)
             push!(angleRowInd,first(currentAngleRowInd))
             push!(angleValues,first(topology.angleIndList[currentAngleRowInd,4]))
         end
+        currentAngleRowInd = [] #I reset the value, otherwise the isempty statement will not work
         #3 and #4
         currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[3] current_index neighbor_indices[4]]), 1:size(topology.angleIndList, 1))
-        if isempty(angleRowInd)
+        if isempty(currentAngleRowInd)
             currentAngleRowInd = findall(i -> @view(topology.angleIndList[i, 1:3]) == vec([neighbor_indices[4] current_index neighbor_indices[3]]), 1:size(topology.angleIndList, 1))
         end
         if !isempty(currentAngleRowInd)
@@ -603,12 +639,158 @@ function getAngles(current_index,neighbor_indices,topology)
     return angleRowInd,angleValues
 end
 
-#Energy calculations################################################################################
-function calcCoulomb(frames,atomPositions,atomNames,atomCharges)
-    
+function findRings(topology,coords,atoms,atomTypeArray,elementTypeDict)
+#This function finds rings of atoms by walking a tree of neighbors of each atom.
+    #Definition of algorithm parameters
+    minRingSize = 4 #4-atom rings are contemplated in gaff
+    regularityTol = 0.02u"nm" #for a regular polygon, all atoms are at the same distance from the centroid
 
+    allAtomList = 1:size(topology.atomIndList,1)
+    #I want a relatively large searchRadius, so it is less likely that only half a Ring is found, which would make
+    #the algorithm less efficient
+    searchRadius = 0.5u"nm" #radius in nm where it will search for bonded atoms (benzene has d = 0.28 nm (r = 0.14 nm) approx)
+    currAtom = 1 #It will start from the first atom, until it reaches the last one in the topology, but it will not go one-by-one, as it would then have enormous complexity
+    atomIndicesInSphere = []
+    neighbor_elements = []
+    neighbor_indices = []
+    #Here the loop should start
+    Rings = []
+    while currAtom <= allAtomList[end]
+
+        if atomTypeArray[currAtom]["element"] == "H"
+            currAtom += 1
+            continue
+        end
+
+        sphereCenter = coords[currAtom]
+        atomIndicesInSphere = findall(i -> norm(coords[i]-sphereCenter) < searchRadius, allAtomList)
+        
+        _, _, neighbor_elements, neighbor_indices = findNeighbors(currAtom,atoms,topology,elementTypeDict)
+
+        #Here I'm starting the logic to start building the rings
+        #I have to use filter because I want a subset of the atomIndicesInSphere vector
+        nonHIndicesInSphere = filter(i -> atomTypeArray[i]["element"] != "H", atomIndicesInSphere)
+        sp2IndicesInSphere = filter(i -> atomTypeArray[i]["hybridization"] == "sp2", nonHIndicesInSphere)
+
+        #println("atomIndicesInSphere are $atomIndicesInSphere")
+        #println("nonHIndicesInSphere are $nonHIndicesInSphere")
+        #println("sp2IndicesInSphere are $sp2IndicesInSphere")
+
+        #This is 
+        if length(sp2IndicesInSphere) < minRingSize
+            currAtom += 1
+            continue
+        end
+
+        #the previous code is simpler to screen only for sp2 carbons
+        #Now I want to screen C who have at least 2 neighbors that are also sp2
+        keepInd = []
+        for k = 1:length(sp2IndicesInSphere)
+            id1 = sp2IndicesInSphere[k]
+            _, _, neighbor_elements, neighbor_indices = findNeighbors(id1,atoms,topology,elementTypeDict)
+            sp2neighbors = filter(i -> atomTypeArray[i]["hybridization"] == "sp2", neighbor_indices)
+            if length(sp2neighbors) >= 2
+                push!(keepInd,id1)
+            end    
+        end
+
+        if length(keepInd) < minRingSize
+            currAtom += 1
+            continue
+        end
+
+        if length(Rings) >=1 && Rings[end] == keepInd
+            currAtom += 1
+            continue
+        end
+
+        keep_sp2IndicesInSphere = keepInd
+        #println("keep_sp2IndicesInSphere are $keep_sp2IndicesInSphere")
+
+        #Now I need to validate that the atoms kept indeed form a ring
+        ringCentroid = sum(coords[keep_sp2IndicesInSphere,:],dims=1)/length(keep_sp2IndicesInSphere)
+        #println("The ringCentroid coordinates are $ringCentroid")
+        
+        keptAtomsDistance2Centroid = norm.(coords[keep_sp2IndicesInSphere,:].-ringCentroid)
+        meanDistance = sum(keptAtomsDistance2Centroid)/length(keptAtomsDistance2Centroid)
+        maxDeviation = maximum(keptAtomsDistance2Centroid .- meanDistance)
+
+        if maxDeviation < regularityTol
+            push!(Rings,keep_sp2IndicesInSphere)
+        end
+
+        #How do I iterate currAtom? Do I want it to skip all atoms that were already in my previous list?
+        #probably not, because I could have fused rings, or biaryls which are not complete, but have some atoms
+        #in my keep_sp2IndicesInSphere list (or the other larger lists)
+        currAtom += 1
+
+
+        #nBonded_to_Current = length(neighbor_elements)
+
+        #This code made some lists, but I did not really understand it
+        # possibleRings =  []
+        # remainderIndicesInSphere = nonHIndicesInSphere #This will be reduced as the possible Rings grow
+        # println(remainderIndicesInSphere)
+        # k = 1
+        # id1 = nonHIndicesInSphere[1]
+        # possibleCurrentRing = []
+        # bondFound = true
+        # while k <= length(nonHIndicesInSphere)
+            
+        #     if bondFound == false
+        #         id1 = nonHIndicesInSphere[k]
+        #     end
+
+        #     for l = 1:length(remainderIndicesInSphere)
+        #         id2 = remainderIndicesInSphere[l]
+
+        #         #This attempts to find if there is a bond between atoms id1 and id2 (which are eligible indices in the sphere)
+        #         bondRowInd1_2  = findall(all(topology.bondIndList[:,1:2] .== [id1 id2], dims=2))
+        #         bondRowInd2_1  = findall(all(topology.bondIndList[:,1:2] .== [id2 id1], dims=2))
+
+        #         if !isempty(bondRowInd1_2)
+        #             #println(bondRowInd1_2)
+        #             push!(possibleCurrentRing,id1)
+        #             push!(possibleCurrentRing,id2)
+        #             #I get the new first member in the bond search
+        #             id1 = possibleCurrentRing[end]
+        #             filter!(x -> (x != id1 || x != id2), remainderIndicesInSphere)                   
+        #         elseif !isempty(bondRowInd2_1) #As the bonds in bondIndList are unique, either none or one of these CartesianIndex variables can be nonempty
+        #             #println(bondRowInd2_1)
+        #             push!(possibleCurrentRing,id2)
+        #             push!(possibleCurrentRing,id1)
+        #             #I get the new first member in the bond search
+        #             id1 = possibleCurrentRing[end]
+        #             filter!(x -> (x != id1 || x != id2), remainderIndicesInSphere)
+        #         else
+        #             #what happens if there is no bond between id1 and any other atom in the sphere?
+        #             #I think this is unlikely
+        #             #I am not sure if the following code is correct
+        #             #id1 = remainderIndicesInSphere[1]
+        #             bondFound = false
+        #         end
+        #         println("k is $k and l is $l")
+        #         println("id1 is $id1 and id2 is $id2")
+        #         println(remainderIndicesInSphere)
+        #         println("possibleCurrentRing is $possibleCurrentRing")
+        #         #I am not sure why this is necessary, but if not I get BoundsError
+        #         if l == length(remainderIndicesInSphere)
+        #             break
+        #         end
+        #     end
+
+        #     push!(possibleRings,possibleCurrentRing)
+        #     k = k + 1
+        # end
+
+        # println(possibleRings)       
+        #until here. If uncommented it may work, but not in the way I want it to.
+
+        #break for Debugging (using break erases the local scope)
+        #break
+    end
+    return Rings #, currAtom, neighbor_elements, neighbor_indices, atomIndicesInSphere #only returning for testing the function
 end
-
 
 #Output and File Formats############################################################################
 function printXYZ(fragment::SimpleFragment)

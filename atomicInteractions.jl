@@ -1,4 +1,9 @@
 
+#Energy calculations################################################################################
+function calcCoulomb(frames,atomPositions,atomNames,atomCharges)
+    TotalLJEnergy = 0.0
+
+end
 
 function nonBondedLJ(currentFragment::Fragment,topology)
 
