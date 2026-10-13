@@ -2,7 +2,7 @@
 
 This set of programs constitute a molecular dynamics environment based on [Molly.jl](https://github.com/JuliaMolSim/Molly.jl). JuliaMD contains utilities for generating a topology and detecting atom types using bonding criteria. It can also load a forcefield from an XML file (only GAFF has been tested so far), and assign the forcefield parameters to the appropriate bonds, angles and dihedrals, based on the GAFF atom types previously detected. It can also detect certain aromatic rings, and it can assign charges using the Charge Equilibration method [1,2]
 
-#Installation
+# Installation
 
 Requirements: [Molly.jl](https://github.com/JuliaMolSim/Molly.jl), [EzXML.jl](https://github.com/JuliaIO/EzXML.jl), [Chemfiles.jl](https://github.com/chemfiles/Chemfiles.jl)
 
