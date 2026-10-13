@@ -388,6 +388,9 @@ function determineAtomTypes(atoms,topology)
                 elseif number_neighbors["C"] == 3
                     atomTypeDict["class"] = "-C(bridge)="
                     atomTypeDict["gafftype"] = "c2" #gaff sp2 carbon
+                elseif number_neighbors["O"] == 1 && number_neighbors["N"] == 1
+                    atomTypeDict["class"] = "-CON-"
+                    atomTypeDict["gafftype"] = "c" #gaff carbonyl carbon
                 end
             elseif length(indices) == 4
                 atomTypeDict["hybridization"] = "sp3"
@@ -445,7 +448,15 @@ function determineAtomTypes(atoms,topology)
                     atomTypeDict["gafftype"] = "n3" #gaff sp3 nitrogen with 3 substituents
                 elseif number_neighbors["C"] == 2 && number_neighbors["H"] == 1
                     atomTypeDict["class"] = "C-N-C,H"
-                    atomTypeDict["gafftype"] = "n3" #gaff sp3 nitrogen with 3 substituents    
+                    
+                    println("neighbor_indices are $neighbor_indices")
+                    typedNeighbors = filter(i -> i <= length(atomTypeArray),neighbor_indices)
+                    println("typedNeighbors are $typedNeighbors")
+                    if any([atomTypeArray[i]["hybridization"] == "sp2" for i in typedNeighbors]) #this is kind of a hack
+                        atomTypeDict["gafftype"] = "n" #gaff sp2 nitrogen in amides
+                    else    
+                        atomTypeDict["gafftype"] = "n3" #gaff sp3 nitrogen with 3 substituents
+                    end    
                 end    
             end
 
@@ -458,7 +469,7 @@ function determineAtomTypes(atoms,topology)
                 "gafftype" => "",
                 )
 
-            number_neighbors, indices = findNeighbors(j,atoms,topology,elementTypeDict)
+            number_neighbors, indices, neighbor_elements, neighbor_indices = findNeighbors(j,atoms,topology,elementTypeDict)
             if length(indices) == 1
                 atomTypeDict["hybridization"] = "sp2"
                 if number_neighbors["C"] == 1
@@ -466,7 +477,12 @@ function determineAtomTypes(atoms,topology)
                     atomTypeDict["gafftype"] = "o" #gaff carbonyl oxygen
                 end
             elseif length(indices) == 2
-                atomTypeDict["hybridization"] = "sp3"
+                angleRowInd,angleValues = getAngles(j,neighbor_indices,topology) #This is not a good way to check for hybridization of O
+                if minimum(angleValues) < 117.0 
+                    atomTypeDict["hybridization"] = "sp3"
+                else
+                    atomTypeDict["hybridization"] = "sp2"
+                end
                 if number_neighbors["C"] == 1 && number_neighbors["H"] == 1
                     atomTypeDict["class"] = "C-O-H"
                     atomTypeDict["gafftype"] = "oh" #gaff alcohol oxygen
@@ -689,7 +705,7 @@ function findRings(topology,coords,atoms,atomTypeArray,elementTypeDict)
             id1 = sp2IndicesInSphere[k]
             _, _, neighbor_elements, neighbor_indices = findNeighbors(id1,atoms,topology,elementTypeDict)
             sp2neighbors = filter(i -> atomTypeArray[i]["hybridization"] == "sp2", neighbor_indices)
-            if length(sp2neighbors) >= 2
+            if length(sp2neighbors) >= 2 #6oct2026: maybe this should be == 2
                 push!(keepInd,id1)
             end    
         end
@@ -715,8 +731,65 @@ function findRings(topology,coords,atoms,atomTypeArray,elementTypeDict)
         meanDistance = sum(keptAtomsDistance2Centroid)/length(keptAtomsDistance2Centroid)
         maxDeviation = maximum(keptAtomsDistance2Centroid .- meanDistance)
 
-        if maxDeviation < regularityTol
-            push!(Rings,keep_sp2IndicesInSphere)
+        if length(keep_sp2IndicesInSphere) <= 6 #(4-, 5- or 6-membered ring)
+            if maxDeviation < regularityTol #This is basically checking that all atoms in keep_sp2IndicesInSphere fulfill this condition
+                push!(Rings,keep_sp2IndicesInSphere)
+            end
+        elseif length(keep_sp2IndicesInSphere) == 10 #fused benzene rings
+            distThrCenterFused = 0.1u"nm"
+            #println("keep_sp2IndicesInSphere is $keep_sp2IndicesInSphere")
+            centerAtomsIndices = filter(i -> norm(coords[i,:].-ringCentroid) < distThrCenterFused, keep_sp2IndicesInSphere)
+            #println("centerAtomsIndices is $centerAtomsIndices")
+            nonCenterAtomIndices = setdiff(keep_sp2IndicesInSphere,centerAtomsIndices) #order is important!!
+            #println("nonCenterAtomIndices is $nonCenterAtomIndices")
+            
+            Ring1 = []
+            Ring2 = []
+
+            k = 0
+            ringRadius = 0.16u"nm" #This is manually chosen for a benzene ring
+
+            #try to find the first index which is further away from the centerAtoms
+            for l = 1:length(nonCenterAtomIndices)
+
+                dist_l_toCentroid = norm(coords[nonCenterAtomIndices[l],:]-ringCentroid)
+                println("l is $l")
+                println("dist_l_toCentroid is $dist_l_toCentroid")
+                if dist_l_toCentroid > 1.5*ringRadius
+                    
+                    k = l
+                    break
+                end
+            end
+            println("k is $k")
+            
+            #push!(Ring1,nonCenterAtomIndices[k])
+            
+            ringCentroid1 = (coords[nonCenterAtomIndices[k],:] + sum(coords[centerAtomsIndices,:],dims=1))/3
+            
+
+            for k = 1:length(nonCenterAtomIndices)
+                if norm(coords[nonCenterAtomIndices[k],:]-ringCentroid1) < 1.25*ringRadius #this 1.25 was hand-tuned, the algorithm should be more robust
+                    push!(Ring1,nonCenterAtomIndices[k])
+                else
+                    push!(Ring2,nonCenterAtomIndices[k])
+                end
+            end
+            println("Ring1 is $Ring1")
+            println("Ring2 is $Ring2")
+
+            if (length(Ring1) + length(Ring2) + length(centerAtomsIndices)) == 10            
+                append!(Ring1,centerAtomsIndices)
+                append!(Ring2,centerAtomsIndices)
+
+            end
+            if Ring1 ∉ Rings  #any([Ring1 != Rings[i] for i in eachindex(Rings)])
+                push!(Rings,Ring1)
+            end
+            if Ring2 ∉ Rings # any([Ring2 != Rings[i] for i in eachindex(Rings)])
+                push!(Rings,Ring2)
+            end
+                            
         end
 
         #How do I iterate currAtom? Do I want it to skip all atoms that were already in my previous list?
